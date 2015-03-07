@@ -1,0 +1,287 @@
+# junit.tests.framework.AssertTestクラスについて
+junit.framework.Assertクラスについてテストしている
+下記の抜粋では小数とNaNをassertEqualsメソッドに指定してエラーが返却されるかどうか確認している
+当然equalではないのでエラーが返却されるのが正しい。
+このことからassertEqualsでFALIEDするとAssertionFailedError例外がスローされることが分かる
+
+エラーが返却された場合は何もせずreturnで終了している。これでテスト上はSUCCESSになるようである
+ 	public void testAssertEqualsNaNFails() {
+		try {
+			assertEquals(1.234, Double.NaN, 0.0);
+		} catch (AssertionFailedError e) {
+			fail() ;
+		}
+		fail();
+	}
+
+
+	public void testFail() {
+		try {
+			fail();
+		} catch (AssertionFailedError e) {
+			return;
+		}
+		throw new AssertionFailedError(); // You can't call fail() here
+	}
+
+# Assertクラス
+AssertクラスはassertTrueなどのテストのSUCCESS/FAILEDの判定メソッドを提供している
+TestCase抽象クラスで、
+abstract TestCase extends Assert implements Test
+などとして継承されている。
+
+AssertにはassertTrueとかassertXXXのメソッドが定義されているので、
+TestCaseを継承すればこれらのメソッドが使えるわけである。
+assertXXXメソッドでは条件に合致しないと、failメソッドを実行している。
+failメソッドでAssertionFAiledErrorクラスがスローされてテストが失敗することを表す。
+
+	static public void fail(String message) {
+		if (message == null) {
+			throw new AssertionFailedError();
+		}
+		throw new AssertionFailedError(message);
+	}
+
+
+- TestSuiteクラスについて
+テストの集合を管理する。
+
+登録されたクラス？から、testから始まり入力パラメータがないメソッドをテストケースと見なして自動実行する
+テストの登録の仕方を調査する
+
+junit.tests.framework.AllTestsクラスで以下のようにある。
+TestCaseクラスの説明のおいて
+
+runnerはいろいろある。どれもstatic suiteメソッドをエントリポイントとして期待している。
+
+public class AllTests {
+
+	public static void main(String[] args) {
+		junit.textui.TestRunner.run(suite());
+	}
+	
+	public static Test suite() {
+		TestSuite suite= new TestSuite("Framework Tests");
+		suite.addTestSuite(TestCaseTest.class);
+		suite.addTest(SuiteTest.suite()); // Tests suite building, so can't use automatic test extraction 
+		suite.addTestSuite(TestListenerTest.class);
+		suite.addTestSuite(AssertionFailedErrorTest.class);
+		suite.addTestSuite(AssertTest.class);
+		suite.addTestSuite(TestImplementorTest.class);
+		suite.addTestSuite(NoArgTestCaseTest.class);
+		suite.addTestSuite(ComparisonCompactorTest.class);
+		suite.addTestSuite(ComparisonFailureTest.class);
+		suite.addTestSuite(DoublePrecisionAssertTest.class);
+		suite.addTestSuite(FloatAssertTest.class);
+		return suite;
+	}
+	
+}
+
+addTestSuiteメソッドは以下のとおり
+
+	/**
+	 * Adds the tests from the given class to the suite
+	 */
+	public void addTestSuite(Class<? extends TestCase> testClass) {
+		addTest(new TestSuite(testClass));
+	}
+
+new TestSuite(testClass)メソッドは以下のとおり。
+
+コメントには
+引数のクラスからTestSuiteを構築する。
+testで始まるすべてのメソッドをtestcaseとしてsuiteに追加する。
+とある
+	public TestSuite(final Class<?> theClass) {
+		addTestsFromTestCase(theClass);
+	}
+
+addTestsFromTestCase()メソッドは以下のとおり
+
+	private void addTestsFromTestCase(final Class<?> theClass) {
+		fName= theClass.getName();
+		try {
+			getTestConstructor(theClass); // Avoid generating multiple error messages
+		} catch (NoSuchMethodException e) {
+			addTest(warning("Class "+theClass.getName()+" has no public constructor TestCase(String name) or TestCase()"));
+			return;
+		}
+
+		if (!Modifier.isPublic(theClass.getModifiers())) {
+			addTest(warning("Class "+theClass.getName()+" is not public"));
+			return;
+		}
+
+		Class<?> superClass= theClass;
+		List<String> names= new ArrayList<String>();
+		while (Test.class.isAssignableFrom(superClass)) {
+			for (Method each : superClass.getDeclaredMethods())
+				addTestMethod(each, names, theClass);
+			superClass= superClass.getSuperclass();
+		}
+		if (fTests.size() == 0)
+			addTest(warning("No tests found in "+theClass.getName()));
+	}
+
+...だんだん深くなってわからなくなってきた。
+
+話をaddTestSuiteメソッドに戻すと、内部ではaddTestメソッドを呼び出してfTestsフィールドにTestインスタンスを追加している。
+	public void addTestSuite(Class<? extends TestCase> testClass) {
+		addTest(new TestSuite(testClass));
+	}
+※再掲
+
+最後にはsuiteインスタンス(TestSuite implements Test)を返却している。
+それをmainメソッドでTestRuner.runメソッドに渡して実行している。suiteメソッドはstaticメソッドなのでmainメソッドで実行できる。
+
+TestRunner+runは以下のとおり。staticメソッドである。
+自分自身のインスタンスを作成して実行している。
+TestResultクラスを返却している
+
+	static public TestResult run(Test test) {
+		TestRunner runner= new TestRunner();
+		return runner.doRun(test);
+	}
+
+引数として渡されたsuiteインスタンスのrunメソッドを実行している。
+その際にTestResultを引数に渡して結果が取得できるようにしている。
+
+TestResultのリスナークラスとしてfPrinterインスタンスが渡されている。
+これは何をするものか？【要確認】
+
+	public TestResult doRun(Test test) {
+		return doRun(test, false);
+	}
+
+falseはwait（待ち）であるようである。一定時間なのか、入力待ちなのかはよく分からない。
+	
+	public TestResult doRun(Test suite, boolean wait) {
+		TestResult result= createTestResult();
+		result.addListener(fPrinter);
+		long startTime= System.currentTimeMillis();
+		suite.run(result);
+		long endTime= System.currentTimeMillis();
+		long runTime= endTime-startTime;
+		fPrinter.print(result, runTime);
+
+		pause(wait);
+		return result;
+	}
+
+suite.runメソッドでテストを実行しているのか確認するためにTestSuite+runメソッドを確認する。
+
+	public void run(TestResult result) {
+		for (Test each : fTests) {
+	  		if (result.shouldStop() )
+	  			break;
+			runTest(each, result);
+		}
+	}
+
+Testが実行しているが、テストケースはTestを実装しているTestCaseを継承して作成するので、
+TestCaseをみる。
+
+	public void runTest(Test test, TestResult result) {
+		test.run(result);
+	}
+
+
+	/**
+	 * A convenience method to run this test, collecting the results with a
+	 * default TestResult object.
+	 *
+	 * @see TestResult
+	 */
+	public TestResult run() {
+		TestResult result= createResult();
+		run(result);
+		return result;
+	}
+	/**
+	 * Runs the test case and collects the results in TestResult.
+	 */
+	public void run(TestResult result) {
+		result.run(this);
+	}
+
+　TestResultクラスのrunメソッドがTestCaseの引数をインスタンスにして実行している！
+
+	/**
+	 * Runs a TestCase.
+	 */
+	protected void run(final TestCase test) {
+		startTest(test);
+		Protectable p= new Protectable() {
+			public void protect() throws Throwable {
+				test.runBare();
+			}
+		};
+		runProtected(test, p);
+
+		endTest(test);
+	}
+
+startTestはたぶんリスナーとして登録されているクラスにテストが始まることを通知している。
+で、test.runBare()メソッドでたぶんテストを実行している。
+
+	public void runBare() throws Throwable {
+		Throwable exception= null;
+		setUp();
+		try {
+			runTest();
+		} catch (Throwable running) {
+			exception= running;
+		}
+		finally {
+			try {
+				tearDown();
+			} catch (Throwable tearingDown) {
+				if (exception == null) exception= tearingDown;
+			}
+		}
+		if (exception != null) throw exception;
+	}
+
+テスト実行前にsetUpとtearDown()が実行されていることが分かる
+
+	protected void runTest() throws Throwable {
+		assertNotNull("TestCase.fName cannot be null", fName); // Some VMs crash when calling getMethod(null,null);
+		Method runMethod= null;
+		try {
+			// use getMethod to get all public inherited
+			// methods. getDeclaredMethods returns all
+			// methods of this class but excludes the
+			// inherited ones.
+			runMethod= getClass().getMethod(fName, (Class[])null);
+		} catch (NoSuchMethodException e) {
+			fail("Method \""+fName+"\" not found");
+		}
+		if (!Modifier.isPublic(runMethod.getModifiers())) {
+			fail("Method \""+fName+"\" should be public");
+		}
+
+		try {
+			runMethod.invoke(this);
+		}
+		catch (InvocationTargetException e) {
+			e.fillInStackTrace();
+			throw e.getTargetException();
+		}
+		catch (IllegalAccessException e) {
+			e.fillInStackTrace();
+			throw e;
+		}
+	}
+
+　getMethodでは指定されたメソッド名でメソッドを取得するのでfNameにはメソッドが入っているようである。
+これはTestCaseのフィールドとして定義されている private String fNameである。
+つまりtestXXXXメソッドごとにTestCaseクラスが作成されるということになるか？
+
+TestCaseの以下のメソッドをみるとテストケース数として必ず1を返却するようになっているので予想は当たっている！？
+	/**
+	 * Counts the number of test cases executed by run(TestResult result).
+	 */
+	public int countTestCases() {
+		return 1;
+	}
